@@ -11,15 +11,16 @@ Dixon is a student at Syracuse University, and **this is Dixon's first coding pr
 - Never put secret keys in the code. The Supabase **anon/publishable** key is fine to ship in the front end. The **service_role/secret** key is never committed.
 
 ## What's here
-- `index.html`: the whole app (HTML + CSS + vanilla JS in one file). Open it by double-clicking.
-- `data/seed.js`: Dixon's real Fall 2026 coursework (5 courses, 43 items), exported from the claude.ai version. It loads only on first open.
+- `index.html`: the whole app (HTML + CSS + vanilla JS in one file). Use it at https://dscherer6.github.io/dixons-planner/ or locally at http://localhost:8000 (double-clicking can't sign in).
+- `data/seed.js`: Dixon's real Fall 2026 coursework (5 courses, 43 items), exported from the claude.ai version. Gitignored (stays on Dixon's Mac). Already imported into Dixon's Supabase account; the app offers it as a one-time Import only when the signed-in account is empty.
 - `supabase/schema.sql`: the planned database tables, with row-level security so each user only sees their own data.
 - `START-HERE.md`: Dixon's step-by-step guide.
 
 ## Data model
 - **courses** keyed by id (`fin345`, `psy322`, `psy335`, `wrt307`, `fin452`): `code, name, days, time, room, note, order, sessions[]`. Each session is `{d:"YYYY-MM-DD", t:topic, r:reading, off:bool}` and `off` means no class.
 - **items** keyed by id: `course, title, kind (exam|project|hw|quiz|reading|task), date ("YYYY-MM-DD" or null for TBD), time ("HH:MM" or ""), detail, done`.
-- Right now storage is browser `localStorage` (key `dixons-planner.v1`) through a small `LocalDB` shim in `index.html` that copies the claude.ai db API: `doc("items/id").set/update/delete`. Swapping in Supabase means replacing that shim and the boot block. The rest of the app shouldn't need to change.
+- Storage is Supabase (project `xxduaykitaegdbqwzvgf`) through a small `SupaDB` shim in `index.html` with the claude.ai-style API `doc("items/id").set/update/delete`. `toRow`/`fromRow` translate app camelCase (`doneAt`, `createdAt`) to table snake_case columns; add new fields to `COLS` there and to `supabase/schema.sql`.
+- Sign-in is an email magic link. Supabase's free email can't edit templates (needs custom SMTP), so there's no 6-digit code. Links can't return to a double-clicked `file://` page; for local testing run `python3 -m http.server 8000` and open http://localhost:8000 (already in Supabase's Redirect URLs).
 
 ## Roadmap (do these in order, one at a time)
 1. **Local + git:** run it locally, `git init`, make the first commit, and create a GitHub repo (use `gh` if it's installed; otherwise guide Dixon through the website).

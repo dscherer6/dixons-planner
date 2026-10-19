@@ -61,6 +61,14 @@ button,input,select,textarea{font:inherit;color:inherit}
 .tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
 
 .banner{padding:10px 14px;border-radius:var(--r);background:var(--sunk);font-size:.9rem}
+.banner{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px}
+[hidden]{display:none!important}
+#app{display:contents}
+/* sign-in card */
+.auth{max-width:420px;padding:20px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);display:flex;flex-direction:column;gap:12px}
+.auth h2{font-size:1.15rem}
+.auth input{padding:12px 14px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);color:var(--ink);font-size:1rem}
+.who{display:flex;align-items:center;gap:8px;font-size:.85rem;color:var(--muted)}
 
 /* today board */
 .board{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:18px;align-items:start}
@@ -167,8 +175,17 @@ button,input,select,textarea{font:inherit;color:inherit}
       <div class="date" id="todayLabel">Loading date…</div>
       <h1>Dixon's Planner</h1>
     </div>
+    <div class="who" id="who" hidden><span id="whoEmail"></span><button class="btn small" id="signOut" type="button">Sign out</button></div>
   </header>
 
+  <form class="auth" id="auth" hidden autocomplete="on">
+    <h2>Sign in</h2>
+    <p class="muted" id="authMsg">Enter your email and we'll send you a sign-in link. No password needed.</p>
+    <input type="email" id="authEmail" placeholder="you@example.com" required aria-label="Email">
+    <button class="btn primary" type="submit" id="authBtn">Email me a sign-in link</button>
+  </form>
+
+  <div id="app" hidden>
   <form class="qa" id="qaForm" autocomplete="off">
     <div class="qa-row">
       <input id="qaInput" placeholder="Quick add: “FIN 345 IPO notes fri 5pm” or “psy322 quiz 10/26”" aria-label="Quick add">
@@ -187,11 +204,14 @@ button,input,select,textarea{font:inherit;color:inherit}
 
   <div class="banner" id="banner" hidden></div>
   <main id="view"></main>
+  </div>
 </div>
 <div id="sheetHost"></div>
 <div class="toast" id="toast" hidden></div>
 
+<!-- data/seed.js exists only on Dixon's Mac (it's gitignored); online it's missing and the app just skips it. -->
 <script src="data/seed.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.58.0/dist/umd/supabase.js"></script>
 <script>
 (function(){
 const S = { courses:{}, items:{}, view:"today", weekOff:0, monthOff:0, selDay:null, filter:"all", showDone:false, loaded:false, db:null, canWrite:true };
@@ -436,20 +456,87 @@ $("#qaForm").addEventListener("submit",async e=>{e.preventDefault();const v=$("#
 /* ---------- boot ---------- */
 qaPreview();render();
 setInterval(()=>{if(S.lastDay!==today()){S.lastDay=today();render();}},60000);S.lastDay=today();
-// ---- Storage: browser localStorage for now. Phase 2 swaps this for Supabase (see CLAUDE.md). ----
-const KEY="dixons-planner.v1";
-function persist(){try{localStorage.setItem(KEY,JSON.stringify({courses:S.courses,items:S.items}));}catch(e){toast("Couldn't save in this browser.");}}
-const LocalDB={doc(path){const [col,id]=path.split("/");return{
-  async set(d){S[col][id]=d;persist();},
-  async update(p){S[col][id]={...S[col][id],...p};persist();},
-  async delete(){delete S[col][id];persist();}};}};
-(()=>{
-  let saved=null;try{saved=JSON.parse(localStorage.getItem(KEY)||"null");}catch(e){}
-  const src=saved||window.SEED||{courses:{},items:{}};
-  S.courses={};for(const [id,c] of Object.entries(src.courses||{}))S.courses[id]={id,...c};
-  S.items={...(src.items||{})};
-  S.db=LocalDB;S.loaded=true;if(!saved)persist();render();
-})();
+// ---- Storage: Supabase. Row-level security means each signed-in user only sees their own rows. ----
+const SUPABASE_URL="https://xxduaykitaegdbqwzvgf.supabase.co";
+const SUPABASE_KEY="sb_publishable_pNwBnRNEreo_LlJ9uxEWjQ_v1tCnmlc"; // publishable key: safe in the browser
+if(!window.supabase){$("#auth").hidden=false;$("#authMsg").textContent="Couldn't reach the internet. Check your connection and reload.";$("#authBtn").disabled=true;return;}
+const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+
+// The app uses camelCase fields; the tables use snake_case columns. These two functions translate.
+const COLS={courses:["code","name","days","time","room","note","order","sessions"],
+            items:["course","title","kind","date","time","detail","done","source"]};
+const RENAME={doneAt:"done_at",createdAt:"created_at"};
+function toRow(col,d){
+  const r={};
+  for(const [k,v] of Object.entries(d)){
+    if(COLS[col].includes(k)) r[k]=v;
+    else if(col==="items"&&RENAME[k]) r[RENAME[k]]=v;
+  }
+  r.updated_at=new Date().toISOString();
+  return r;
+}
+function fromRow(col,r){
+  const {user_id,updated_at,created_at,done_at,area,...rest}=r;
+  return col==="items"?{...rest,doneAt:done_at,createdAt:created_at,updatedAt:updated_at}:rest;
+}
+// Same doc("items/id").set/update/delete shape the rest of the app already calls.
+const SupaDB={doc(path){const [col,id]=path.split("/");
+  const run=async p=>{const {error}=await p;if(error)throw error;};
+  return{
+    set:d=>run(sb.from(col).upsert({user_id:S.user.id,id,...toRow(col,d)})),
+    update:p=>run(sb.from(col).update(toRow(col,p)).eq("id",id)),
+    delete:()=>run(sb.from(col).delete().eq("id",id))};}};
+
+async function load(){
+  const [c,i]=await Promise.all([sb.from("courses").select("*"),sb.from("items").select("*")]);
+  if(c.error||i.error){toast("Couldn't load your planner. Check your connection.");return;}
+  S.courses={};for(const r of c.data)S.courses[r.id]=fromRow("courses",r);
+  S.items={};for(const r of i.data)S.items[r.id]=fromRow("items",r);
+  S.loaded=true;render();showImport();
+}
+
+// One-time import: only offered when the account is empty and this computer has data/seed.js.
+function showImport(){
+  const b=$("#banner"),seed=window.SEED;
+  const empty=!Object.keys(S.courses).length&&!Object.keys(S.items).length;
+  if(!(empty&&seed)){b.hidden=true;return;}
+  const nc=Object.keys(seed.courses||{}).length,ni=Object.keys(seed.items||{}).length;
+  b.innerHTML=`<span>Your account is empty. Copy your ${nc} courses and ${ni} items from this computer into it?</span><button class="btn primary small" id="importBtn" type="button">Import</button>`;
+  b.hidden=false;
+  $("#importBtn").onclick=async()=>{
+    const btn=$("#importBtn");btn.disabled=true;btn.textContent="Importing…";
+    const uid=S.user.id;
+    const cs=Object.entries(seed.courses||{}).map(([id,c])=>({user_id:uid,id,...toRow("courses",c)}));
+    const is=Object.entries(seed.items||{}).map(([id,it])=>({user_id:uid,id,...toRow("items",it)}));
+    const r1=await sb.from("courses").upsert(cs,{defaultToNull:false});
+    const r2=r1.error?r1:await sb.from("items").upsert(is,{defaultToNull:false});
+    if(r2.error){btn.disabled=false;btn.textContent="Try again";toast("Import failed: "+r2.error.message);return;}
+    toast(`Imported ${nc} courses and ${ni} items`);await load();
+  };
+}
+
+// ---- Sign-in: email magic link. ----
+async function showSession(session){
+  const user=session?.user||null;
+  if(user&&user.id===S.user?.id&&S.loaded)return; // token refresh, nothing to reload
+  S.user=user;
+  $("#auth").hidden=!!user;$("#app").hidden=!user;$("#who").hidden=!user;
+  if(user){$("#whoEmail").textContent=user.email;S.db=SupaDB;S.loaded=false;render();await load();}
+  else{S.db=null;S.courses={};S.items={};S.loaded=false;$("#banner").hidden=true;}
+}
+// Supabase advises not awaiting its own calls inside this callback, so hand off with setTimeout.
+sb.auth.onAuthStateChange((_e,session)=>setTimeout(()=>showSession(session),0));
+if(location.protocol==="file:")$("#authMsg").textContent="Sign-in links can't open a double-clicked file. Use the website instead, or ask Claude to start the local server.";
+$("#auth").addEventListener("submit",async e=>{e.preventDefault();
+  const email=$("#authEmail").value.trim();if(!email)return;
+  const btn=$("#authBtn");btn.disabled=true;btn.textContent="Sending…";
+  const {error}=await sb.auth.signInWithOtp({email,options:{emailRedirectTo:location.origin+location.pathname}});
+  btn.disabled=false;btn.textContent="Email me a sign-in link";
+  $("#authMsg").textContent=error?"Couldn't send the link: "+error.message:`Check ${email} for a "Sign in" link and open it on this device.`;
+});
+$("#signOut").onclick=()=>sb.auth.signOut();
+// Coming back to the tab (e.g. after editing on another device) pulls the latest data.
+document.addEventListener("visibilitychange",()=>{if(!document.hidden&&S.user)load();});
 })();
 </script>
 

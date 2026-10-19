@@ -28,6 +28,7 @@ create table if not exists public.items (
   time      text default '',                -- 'HH:MM'
   detail    text default '',
   done      boolean not null default false,
+  done_at   date,                           -- day it was checked off
   source    text default '',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -37,7 +38,9 @@ create table if not exists public.items (
 alter table public.courses enable row level security;
 alter table public.items   enable row level security;
 
+drop policy if exists "own courses" on public.courses;
 create policy "own courses" on public.courses
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "own items" on public.items;
 create policy "own items" on public.items
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
