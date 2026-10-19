@@ -23,6 +23,8 @@ Dixon is a student at Syracuse University, and **this is Dixon's first coding pr
 - Sign-in is an email magic link. Supabase's free email can't edit templates (needs custom SMTP), so there's no 6-digit code. Links can't return to a double-clicked `file://` page; for local testing run `python3 -m http.server 8000` and open http://localhost:8000 (already in Supabase's Redirect URLs).
 
 ## Roadmap (do these in order, one at a time)
+Steps 1–3 are done (Oct 2026). After step 3 the app got a calm/minimal redesign: Home screen with a time-of-day greeting and section tiles, hash-based sections (`#today`, `#week`, …), light theme by default with a Dark/Light toggle (saved in `localStorage` as `planner.theme`), and accessibility fixes. Keep new colors passing WCAG AA (4.5:1) in both themes.
+
 1. **Local + git:** run it locally, `git init`, make the first commit, and create a GitHub repo (use `gh` if it's installed; otherwise guide Dixon through the website).
 2. **Online:** publish with GitHub Pages so it has a real URL that works on a phone.
 3. **Real database + login:** create a Supabase project. Run `supabase/schema.sql`, add email magic-link sign-in, replace `LocalDB` with the Supabase JS client (load it from a CDN `<script>` tag), and import `data/seed.js` into Dixon's account once.
