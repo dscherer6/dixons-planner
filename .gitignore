@@ -1,0 +1,8 @@
+# Kept on this computer only (personal coursework data)
+data/seed.js
+
+# Mac system files
+.DS_Store
+
+# Claude Code settings for this computer only
+.claude/settings.local.json
